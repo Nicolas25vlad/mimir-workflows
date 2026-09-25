@@ -1,0 +1,99 @@
+{
+  "name": "Mimir · Bug Hunt",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mimir/bug-hunt",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bug-hunt-webhook",
+      "name": "Mimir Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -460,
+        0
+      ],
+      "webhookId": "mimir-bug-hunt",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_WEBHOOK_AUTH",
+          "name": "Mimir Webhook Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'bug-hunt',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'resolve repository and ref',\n      'collect diff and repository hotspots',\n      'run deterministic scanners',\n      'run focused bug-hunter agents',\n      'deduplicate findings',\n      'return compact structured evidence'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add scanner/agent nodes before this response node.'\n  }\n}];"
+      },
+      "id": "bug-hunt-contract",
+      "name": "Validate Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "bug-hunt-response",
+      "name": "Respond to MCP Gateway",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        120,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Mimir Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Contract": {
+      "main": [
+        [
+          {
+            "node": "Respond to MCP Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "mimirContractVersion": 1,
+    "starterSteps": [
+      "repository context",
+      "static analysis",
+      "agent fan-out",
+      "deduplication",
+      "structured findings"
+    ]
+  },
+  "tags": [],
+  "active": false
+}

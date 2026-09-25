@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck and build
+        run: npm run check
+
+      - name: Validate workflow JSON
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          for (const name of fs.readdirSync('workflows')) {
+            if (!name.endsWith('.json')) continue;
+            const file = path.join('workflows', name);
+            const workflow = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (!workflow.name || !Array.isArray(workflow.nodes) || !workflow.connections) {
+              throw new Error(`Invalid n8n workflow contract: ${file}`);
+            }
+            console.log(`ok: ${file}`);
+          }
+          NODE
+
+      - name: Build container
+        run: docker build -t mimir-workflows:ci .

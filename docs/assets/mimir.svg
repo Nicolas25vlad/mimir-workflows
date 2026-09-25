@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="220" viewBox="0 0 920 220" role="img" aria-labelledby="title desc">
+  <title id="title">Mimir Workflows</title>
+  <desc id="desc">A geometric eye and branching rune mark next to the words Mimir Workflows.</desc>
+  <rect width="920" height="220" rx="34" fill="#1F1F28"/>
+  <g transform="translate(42 28)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 82C47 32 122 17 177 82C122 147 47 132 18 82Z" stroke="#7E9CD8" stroke-width="8"/>
+    <circle cx="98" cy="82" r="29" stroke="#C0A36E" stroke-width="8"/>
+    <circle cx="98" cy="82" r="8" fill="#DCD7BA" stroke="none"/>
+    <path d="M98 17V0M68 24L54 8M128 24L142 8M98 147V164M68 140L54 156M128 140L142 156" stroke="#98BB6C" stroke-width="6"/>
+    <path d="M177 82H205M197 82L216 62M197 82L216 102" stroke="#7FB4CA" stroke-width="6"/>
+  </g>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="292" y="102" font-size="72" font-weight="750" letter-spacing="3" fill="#DCD7BA">MIMIR</text>
+    <text x="296" y="148" font-size="28" font-weight="520" letter-spacing="7" fill="#938AA9">WORKFLOWS</text>
+    <text x="296" y="181" font-size="15" font-weight="500" letter-spacing="2" fill="#727169">MCP  •  N8N  •  SELF-HOSTED</text>
+  </g>
+</svg>

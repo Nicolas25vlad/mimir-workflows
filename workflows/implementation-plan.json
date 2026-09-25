@@ -1,0 +1,99 @@
+{
+  "name": "Mimir · Implementation Plan",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mimir/implementation-plan",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "implementation-plan-webhook",
+      "name": "Mimir Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -460,
+        0
+      ],
+      "webhookId": "mimir-implementation-plan",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_WEBHOOK_AUTH",
+          "name": "Mimir Webhook Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nif (typeof body.request !== 'string' || body.request.length < 3) {\n  throw new Error('request must contain at least 3 characters');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'implementation-plan',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'inspect repository structure and conventions',\n      'locate affected components',\n      'identify dependencies and migration risks',\n      'produce ordered implementation steps',\n      'define validation and rollback checks',\n      'return a compact execution plan'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add repository-grounding and planning agents before this response node.'\n  }\n}];"
+      },
+      "id": "implementation-plan-contract",
+      "name": "Validate Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "implementation-plan-response",
+      "name": "Respond to MCP Gateway",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        120,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Mimir Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Contract": {
+      "main": [
+        [
+          {
+            "node": "Respond to MCP Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "mimirContractVersion": 1,
+    "starterSteps": [
+      "repository grounding",
+      "affected components",
+      "dependencies",
+      "ordered tasks",
+      "validation"
+    ]
+  },
+  "tags": [],
+  "active": false
+}
