@@ -1,60 +1,129 @@
 # Security
 
+Mimir processes untrusted repositories and can optionally send derived context to a model provider. The security model assumes repository content may be malicious.
+
 ## Trust boundaries
 
-1. MCP client → gateway
-2. gateway → n8n
-3. n8n → repository scanner
-4. n8n → agent runner
-5. scanner/agent runner → GitHub or configured model provider
+| Boundary | Credential |
+| --- | --- |
+| MCP client → gateway | `MCP_AUTH_TOKEN` |
+| gateway → n8n | `N8N_WEBHOOK_TOKEN` |
+| n8n → scanner | `SCANNER_AUTH_TOKEN` |
+| n8n → agent runner | `AGENT_AUTH_TOKEN` |
+| scanner → private GitHub repo | optional `GITHUB_TOKEN` |
+| agent runner → provider | optional `AGENT_API_KEY` |
 
-Every boundary uses a separate credential.
+Do not reuse secrets between boundaries.
 
-## MCP
+## Threat model
 
-- random `MCP_AUTH_TOKEN`;
-- TLS before internet exposure;
-- explicit host allowlist;
-- constant-time token comparison;
-- network-level access control recommended.
+### Malicious repository content
 
-## n8n
+A repository may contain:
 
-- editor bound to localhost in starter Compose;
-- separate Header Auth credentials for gateway, scanner and agent runner;
-- stable `N8N_ENCRYPTION_KEY`;
-- workflow exports contain credential references only.
-
-## Repository scanner
-
-- GitHub-only repository parsing;
-- arbitrary clone hosts rejected;
-- no shell interpolation;
-- repository code never executed;
-- file/history/timeout budgets;
-- secret-like evidence redaction;
-- ephemeral checkout cleanup;
-- internal-only port;
-- read-only container, dropped capabilities, no-new-privileges.
-
-## Agent runner
-
-Repository content, README text, comments, commit subjects and code excerpts are considered untrusted prompt data.
+- prompt injection in README files or comments;
+- fake security instructions;
+- shell-looking strings;
+- enormous generated files;
+- binary files;
+- secret-like text;
+- misleading commit messages.
 
 Controls:
 
-- model provider URL is administrator-controlled environment configuration, never taken from MCP input;
-- only HTTP/HTTPS provider URLs are accepted;
-- input context and output tokens are capped;
-- prompt explicitly rejects instructions embedded in repository content;
-- model output is returned as probabilistic analysis, separate from deterministic evidence;
-- provider errors do not fail the deterministic workflow;
-- provider API keys are never echoed in responses or logs by Mimir;
-- agent-runner port is internal-only;
-- container runs read-only with dropped capabilities and no-new-privileges.
+- scanner never executes repository code;
+- generated/dependency directories are skipped;
+- file count, file size, total bytes, history depth and timeouts are bounded;
+- secret-like evidence is redacted;
+- agent prompts explicitly treat repository text as untrusted data.
 
-For hosted providers, configure the narrowest possible API credential. For local inference, keep the provider on a private network.
+### SSRF and arbitrary fetching
 
-## Public repository note
+Repository input must not become a generic URL fetcher.
 
-This repository can remain public only while secrets stay in Infisical/runtime/n8n credentials and never in committed workflow exports.
+Controls:
+
+- scanner accepts GitHub repository identifiers only;
+- arbitrary clone hosts are rejected;
+- provider URL comes only from administrator-controlled runtime configuration;
+- provider URL is restricted to HTTP/HTTPS.
+
+### Credential leakage
+
+Controls:
+
+- credentials are not stored in workflow exports;
+- GitHub token is passed to git without embedding it in the clone URL;
+- secret-like findings redact evidence;
+- worker responses do not intentionally echo provider or repository credentials.
+
+### Prompt injection
+
+Repository text is data, not authority.
+
+The agent runner system prompts instruct models to ignore instructions embedded in:
+
+- code;
+- comments;
+- README/docs;
+- commit messages;
+- scan excerpts.
+
+Prompt defenses reduce risk but are not treated as a perfect security boundary. This is one reason model analysis remains separate from deterministic evidence.
+
+## Container hardening
+
+The starter Compose setup:
+
+- does not publish scanner port 8790;
+- does not publish agent-runner port 8791;
+- binds n8n to localhost;
+- runs scanner and agent-runner read-only;
+- drops Linux capabilities on workers;
+- enables `no-new-privileges`;
+- gives the scanner a bounded ephemeral tmpfs.
+
+## Public exposure
+
+When Mimir is remotely accessible:
+
+1. terminate TLS before the MCP gateway;
+2. expose only the gateway;
+3. set `MCP_ALLOWED_HOSTS`;
+4. add an identity/network layer such as a private mesh or authenticated tunnel when possible;
+5. keep n8n, scanner and agent-runner private.
+
+## Private repositories
+
+Prefer a fine-grained read-only GitHub token limited to the smallest required repository set.
+
+A GitHub App installation-token flow is the preferred future design because it enables short-lived, installation-scoped credentials.
+
+## Model providers
+
+For hosted providers:
+
+- use a narrowly scoped key;
+- understand the provider's data-retention policy;
+- avoid sending repository context that should not leave your network.
+
+For sensitive repositories, a local OpenAI-compatible endpoint can keep model inference inside the homelab.
+
+## Reporting a security issue
+
+Do not publish live secrets, private repository contents or exploit-ready details in a public issue.
+
+Use a private GitHub security-reporting channel when available, or contact the repository owner privately through their GitHub profile.
+
+## Security checklist
+
+Before exposing a deployment:
+
+- [ ] five independent runtime secrets generated
+- [ ] TLS enabled
+- [ ] `MCP_ALLOWED_HOSTS` restricted
+- [ ] n8n not publicly exposed
+- [ ] scanner and agent-runner not published
+- [ ] GitHub credential is read-only
+- [ ] model provider configuration reviewed
+- [ ] workflow exports inspected for accidental credential values
