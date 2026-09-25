@@ -1,37 +1,44 @@
 # n8n workflows
 
-The workflow JSON files are importable orchestration definitions for Mimir.
+Mimir workflows use three internal credential boundaries.
 
-## Required credentials
-
-Create two n8n **Header Auth** credentials.
+## Required Header Auth credentials
 
 ### Mimir Webhook Auth
 
 - header: `x-mimir-token`
 - value: `N8N_WEBHOOK_TOKEN`
 
-Used by the public workflow Webhook nodes.
-
 ### Mimir Scanner Auth
 
 - header: `x-mimir-internal-token`
 - value: `SCANNER_AUTH_TOKEN`
 
-Used by the internal `Scan Repository` HTTP Request nodes.
+### Mimir Agent Auth
 
-If imported credential IDs cannot be resolved, select these credentials manually by name.
+- header: `x-mimir-agent-token`
+- value: `AGENT_AUTH_TOKEN`
 
-## Contract
+If imported placeholder IDs are unresolved, select those credentials manually by name.
 
-| Workflow | Webhook path | Deterministic behavior |
-| --- | --- | --- |
-| Bug Hunt | `mimir/bug-hunt` | Severity-filtered findings + hotspots + large files |
-| Refactor Analysis | `mimir/refactor-analysis` | Ranked candidates from churn, size and risk signals |
-| Implementation Plan | `mimir/implementation-plan` | Repository-grounded affected paths + phased validation plan |
+## Pipeline
 
-The scanner endpoint is internal:
+```text
+Webhook
+   ↓
+Scan Repository
+   ↓
+Run Agent Analysis
+   ↓
+Shape Result
+   ↓
+Respond to MCP Gateway
+```
 
-`POST http://repo-scanner:8790/scan`
+The agent stage is optional at runtime. If no provider is configured, the agent-runner returns deterministic-only metadata and the workflow still completes.
 
-Internal nodes may evolve without breaking MCP clients as long as the workflow output contract remains compatible.
+If the provider fails, the runner returns `agent-error` metadata instead of destroying the deterministic result.
+
+## Output discipline
+
+Keep deterministic evidence and model analysis separate. Do not silently promote model guesses into deterministic findings.

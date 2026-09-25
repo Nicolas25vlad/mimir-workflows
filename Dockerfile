@@ -23,6 +23,6 @@ COPY --from=build /app/dist ./dist
 
 USER node
 
-EXPOSE 8787 8790
+EXPOSE 8787 8790 8791
 
 CMD ["node", "dist/index.js"]

@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -720,
+        -900,
         0
       ],
       "webhookId": "mimir-refactor-analysis",
@@ -44,7 +44,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -440,
+        -620,
         0
       ],
       "credentials": {
@@ -56,14 +56,43 @@
     },
     {
       "parameters": {
-        "jsCode": "const scan = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst candidates = new Map();\n\nfunction touch(path, score, reason) {\n  if (!path) return;\n  const current = candidates.get(path) ?? { path, score: 0, reasons: [] };\n  current.score += score;\n  if (!current.reasons.includes(reason)) current.reasons.push(reason);\n  candidates.set(path, current);\n}\n\nfor (const hotspot of scan.hotspots ?? []) {\n  touch(hotspot.path, Math.min(Number(hotspot.touches ?? 0), 20) * 3, `changed ${hotspot.touches} times in recent history`);\n}\n\nfor (const file of scan.largest_files ?? []) {\n  if ((file.lines ?? 0) < 250) continue;\n  touch(file.path, Math.min(Math.ceil(file.lines / 100), 15) * 2, `${file.lines} lines`);\n}\n\nfor (const finding of scan.findings ?? []) {\n  if (finding.severity === 'low') continue;\n  const weight = finding.severity === 'critical' ? 12 : finding.severity === 'high' ? 8 : 4;\n  touch(finding.path, weight, `${finding.severity} ${finding.category}: ${finding.rule}`);\n}\n\nconst ranked = [...candidates.values()]\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 20)\n  .map((item, index) => ({ rank: index + 1, ...item }));\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'refactor-analysis',\n    run_id: String($execution.id),\n    contract_version: 2,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    objective: input.objective ?? 'maintainability',\n    target: input.target ?? 'repository',\n    summary: {\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      candidate_count: ranked.length,\n      findings: scan.findings_summary ?? {}\n    },\n    candidates: ranked,\n    hotspots: (scan.hotspots ?? []).slice(0, 20),\n    largest_files: (scan.largest_files ?? []).slice(0, 20),\n    constraints: input.constraints ?? []\n  }\n}];"
+        "method": "POST",
+        "url": "http://agent-runner:8791/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ kind: 'refactor-analysis', input: $('Mimir Webhook').item.json.body ?? {}, scan: $('Scan Repository').item.json }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "refactor-analysis-agent",
+      "name": "Run Agent Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -340,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_AGENT_AUTH",
+          "name": "Mimir Agent Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scan = $('Scan Repository').item.json;\nconst agent = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst candidates = new Map();\n\nfunction touch(path, score, reason) {\n  if (!path) return;\n  const current = candidates.get(path) ?? { path, score: 0, reasons: [] };\n  current.score += score;\n  if (!current.reasons.includes(reason)) current.reasons.push(reason);\n  candidates.set(path, current);\n}\n\nfor (const hotspot of scan.hotspots ?? []) {\n  touch(hotspot.path, Math.min(Number(hotspot.touches ?? 0), 20) * 3, `changed ${hotspot.touches} times in recent history`);\n}\nfor (const file of scan.largest_files ?? []) {\n  if ((file.lines ?? 0) < 250) continue;\n  touch(file.path, Math.min(Math.ceil(file.lines / 100), 15) * 2, `${file.lines} lines`);\n}\nfor (const finding of scan.findings ?? []) {\n  if (finding.severity === 'low') continue;\n  const weight = finding.severity === 'critical' ? 12 : finding.severity === 'high' ? 8 : 4;\n  touch(finding.path, weight, `${finding.severity} ${finding.category}: ${finding.rule}`);\n}\n\nconst ranked = [...candidates.values()]\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 20)\n  .map((item, index) => ({ rank: index + 1, ...item }));\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'refactor-analysis',\n    run_id: String($execution.id),\n    contract_version: 3,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    objective: input.objective ?? 'maintainability',\n    target: input.target ?? 'repository',\n    summary: {\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      candidate_count: ranked.length,\n      findings: scan.findings_summary ?? {}\n    },\n    deterministic_candidates: ranked,\n    agent_analysis: {\n      configured: Boolean(agent.configured),\n      mode: agent.mode ?? 'unknown',\n      model: agent.model ?? null,\n      latency_ms: agent.latency_ms ?? null,\n      analysis: agent.analysis ?? null,\n      error: agent.error ?? null,\n      usage: agent.usage ?? null\n    },\n    hotspots: (scan.hotspots ?? []).slice(0, 20),\n    largest_files: (scan.largest_files ?? []).slice(0, 20),\n    constraints: input.constraints ?? []\n  }\n}];"
       },
       "id": "refactor-analysis-shape",
       "name": "Shape Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -140,
+        -40,
         0
       ]
     },
@@ -78,7 +107,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        160,
+        260,
         0
       ]
     }
@@ -96,6 +125,17 @@
       ]
     },
     "Scan Repository": {
+      "main": [
+        [
+          {
+            "node": "Run Agent Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Agent Analysis": {
       "main": [
         [
           {
@@ -125,14 +165,14 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "mimirContractVersion": 2,
+    "mimirContractVersion": 3,
     "deterministicScanner": true,
+    "optionalAgentRunner": true,
     "pipelineSteps": [
-      "clone safely",
-      "git hotspots",
-      "file metrics",
-      "risk weighting",
-      "ranked candidates"
+      "deterministic scan",
+      "rank hotspots",
+      "optional agent analysis",
+      "structured result"
     ]
   },
   "tags": [],

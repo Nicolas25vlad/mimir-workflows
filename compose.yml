@@ -46,6 +46,30 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  agent-runner:
+    build:
+      context: .
+    command: ["node", "dist/agent/index.js"]
+    restart: unless-stopped
+    environment:
+      AGENT_HOST: ${AGENT_HOST:-0.0.0.0}
+      AGENT_PORT: ${AGENT_PORT:-8791}
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:?AGENT_AUTH_TOKEN is required}
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-120000}
+      AGENT_MAX_INPUT_CHARS: ${AGENT_MAX_INPUT_CHARS:-120000}
+      AGENT_MAX_OUTPUT_TOKENS: ${AGENT_MAX_OUTPUT_TOKENS:-2500}
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.1}
+    read_only: true
+    networks:
+      - mimir
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   n8n:
     image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:latest}
     restart: unless-stopped
@@ -67,6 +91,8 @@ services:
       - n8n_data:/home/node/.n8n
     depends_on:
       repo-scanner:
+        condition: service_started
+      agent-runner:
         condition: service_started
     networks:
       - mimir

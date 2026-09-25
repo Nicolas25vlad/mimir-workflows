@@ -28,7 +28,7 @@ app.get('/healthz', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'mimir-repo-scanner',
-    version: '0.2.0'
+    version: '0.3.0'
   });
 });
 
