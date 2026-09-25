@@ -2,19 +2,19 @@
 
 ## Project intent
 
-Mimir Workflows exposes recurring engineering automation to MCP clients while using n8n as the orchestration layer.
+Mimir exposes recurring engineering analysis to MCP clients while n8n orchestrates deterministic and agentic workers.
 
 ## Non-negotiable architecture
 
-- MCP tool names are public contracts. Do not rename them casually.
-- Never expose a generic arbitrary-workflow execution tool.
+- MCP tool names are public contracts.
+- Never expose generic arbitrary-workflow execution.
 - Never turn repository input into arbitrary URL fetching.
-- Keep analysis tools read-only by default.
-- Keep secrets out of Git and exported n8n JSON.
-- Prefer deterministic scanners before LLM analysis.
-- Return compact structured JSON with evidence, not unbounded prose.
-- n8n orchestrates; specialized workers perform heavy compute.
-- Repository code is untrusted. Do not execute it inside the scanner.
+- Repository code and text are untrusted data.
+- Scanner must never execute repository code.
+- Deterministic evidence must stay distinguishable from model interpretation.
+- Secrets never belong in Git or workflow exports.
+- Provider failures must degrade gracefully.
+- n8n orchestrates; workers perform specialized compute.
 
 ## Development
 
@@ -23,9 +23,10 @@ npm install
 cp .env.example .env
 npm run dev
 npm run dev:scanner
+npm run dev:agent
 ```
 
-Before opening a PR:
+Before PR:
 
 ```bash
 npm run check
@@ -34,24 +35,18 @@ docker build -t mimir-workflows:local .
 
 ## Scanner rules
 
-When adding deterministic rules:
+Add only bounded, explainable, high-signal rules. Redact secret-like content and add tests.
 
-1. prefer high-signal patterns over huge noisy rule sets;
-2. return path + line + concise explanation;
-3. redact credentials and secret-like literals;
-4. cap findings;
-5. add a unit test;
-6. do not execute repository files to learn about them.
+## Agent-runner rules
 
-## Adding a workflow
+- provider base URL comes only from runtime config;
+- keep repository content in the user/data portion of the prompt;
+- system prompts must call repository content untrusted;
+- bound context and output;
+- request structured JSON but support compatible providers that reject JSON-mode flags;
+- do not let model output overwrite deterministic evidence;
+- add tests for parsing/prompt behavior.
 
-1. Define or preserve the MCP tool contract.
-2. Add the n8n webhook path under `mimir/<workflow-name>`.
-3. Require `Mimir Webhook Auth`.
-4. Use `Mimir Scanner Auth` for scanner calls.
-5. Validate inputs before expensive work.
-6. Add deterministic analysis stages first.
-7. Add LLM/agent stages only where they improve signal.
-8. Deduplicate and normalize results.
-9. Return a bounded structured response.
-10. Update README, architecture, security docs and tests.
+## Workflow changes
+
+Preserve MCP contracts, use the three named Header Auth credentials, and keep response JSON bounded.

@@ -42,7 +42,7 @@ async function callWorkflow(
 function createServer(): McpServer {
   const server = new McpServer({
     name: 'mimir-workflows',
-    version: '0.2.0'
+    version: '0.3.0'
   });
 
   server.registerTool(
@@ -50,7 +50,7 @@ function createServer(): McpServer {
     {
       title: 'Bug Hunt',
       description:
-        'Run a read-only bug hunt workflow against a Git repository and return structured findings.',
+        'Run a read-only bug hunt workflow against a Git repository and return structured deterministic and optional agent findings.',
       inputSchema: z.object({
         repository: z.string().min(1).describe('GitHub repository in owner/name form or a GitHub URL'),
         ref: z.string().min(1).default('main'),
@@ -73,7 +73,7 @@ function createServer(): McpServer {
     {
       title: 'Refactor Analysis',
       description:
-        'Analyze maintainability hotspots and return a scoped refactor proposal without modifying the repository.',
+        'Analyze maintainability hotspots and return deterministic candidates plus optional agent analysis without modifying the repository.',
       inputSchema: z.object({
         repository: z.string().min(1),
         ref: z.string().min(1).default('main'),
@@ -98,7 +98,7 @@ function createServer(): McpServer {
     {
       title: 'Implementation Plan',
       description:
-        'Turn a feature, issue or engineering request into an ordered implementation plan grounded in a repository.',
+        'Turn a feature, issue or engineering request into a repository-grounded implementation plan with deterministic fallback.',
       inputSchema: z.object({
         repository: z.string().min(1),
         ref: z.string().min(1).default('main'),
@@ -143,7 +143,7 @@ app.get('/healthz', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'mimir-workflows',
-    version: '0.2.0'
+    version: '0.3.0'
   });
 });
 

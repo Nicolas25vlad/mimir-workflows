@@ -2,61 +2,59 @@
 
 ## Trust boundaries
 
-Mimir has four meaningful boundaries:
-
 1. MCP client → gateway
 2. gateway → n8n
 3. n8n → repository scanner
-4. n8n/workers → external systems such as GitHub and LLM providers
+4. n8n → agent runner
+5. scanner/agent runner → GitHub or configured model provider
 
-Use independent credentials for each boundary.
+Every boundary uses a separate credential.
 
-## MCP endpoint
+## MCP
 
-- Keep `MCP_AUTH_TOKEN` random and unique.
-- Terminate TLS before exposing the gateway outside your LAN.
-- Set `MCP_ALLOWED_HOSTS` to the real hostnames you serve.
-- Prefer Cloudflare Access, Tailscale or another network-level control in addition to the application token.
-- Bearer comparison uses constant-time comparison after length validation.
+- random `MCP_AUTH_TOKEN`;
+- TLS before internet exposure;
+- explicit host allowlist;
+- constant-time token comparison;
+- network-level access control recommended.
 
 ## n8n
 
-- The starter Compose file binds the editor to `127.0.0.1`.
-- Do not expose port 5678 directly to the internet.
-- Configure `Mimir Webhook Auth` with header `x-mimir-token`.
-- Configure `Mimir Scanner Auth` with header `x-mimir-internal-token`.
-- Keep `N8N_ENCRYPTION_KEY` stable.
+- editor bound to localhost in starter Compose;
+- separate Header Auth credentials for gateway, scanner and agent runner;
+- stable `N8N_ENCRYPTION_KEY`;
+- workflow exports contain credential references only.
 
 ## Repository scanner
 
-The scanner is intentionally not a general clone/fetch service.
+- GitHub-only repository parsing;
+- arbitrary clone hosts rejected;
+- no shell interpolation;
+- repository code never executed;
+- file/history/timeout budgets;
+- secret-like evidence redaction;
+- ephemeral checkout cleanup;
+- internal-only port;
+- read-only container, dropped capabilities, no-new-privileges.
+
+## Agent runner
+
+Repository content, README text, comments, commit subjects and code excerpts are considered untrusted prompt data.
 
 Controls:
 
-- only `owner/name`, github.com HTTPS URLs and github.com SSH URLs are accepted;
-- arbitrary hosts are rejected before git starts;
-- refs starting with `-` or containing control characters are rejected;
-- git runs without a shell;
-- interactive credential prompts are disabled;
-- GitHub credentials are passed through git configuration environment values, not embedded in clone URLs;
-- repository code is never executed;
-- content, file-count, history-depth and timeout budgets are bounded;
-- binary/generated/dependency directories are skipped;
-- secret-like evidence is redacted;
-- checkouts live under ephemeral `/tmp` and are removed in `finally`;
-- Compose runs the scanner read-only, capability-free, with `no-new-privileges` and a bounded tmpfs;
-- scanner port 8790 is not published to the host.
+- model provider URL is administrator-controlled environment configuration, never taken from MCP input;
+- only HTTP/HTTPS provider URLs are accepted;
+- input context and output tokens are capped;
+- prompt explicitly rejects instructions embedded in repository content;
+- model output is returned as probabilistic analysis, separate from deterministic evidence;
+- provider errors do not fail the deterministic workflow;
+- provider API keys are never echoed in responses or logs by Mimir;
+- agent-runner port is internal-only;
+- container runs read-only with dropped capabilities and no-new-privileges.
 
-For private repositories, prefer a fine-grained read-only GitHub token restricted to the smallest repository set. A GitHub App installation token is the planned long-term credential model.
-
-## Workflow design
-
-- Keep analysis workflows read-only unless a separate write tool is intentionally designed.
-- Never place API keys or tokens inside exported workflow JSON.
-- Treat repository contents, issue text and PR comments as untrusted input.
-- Never convert repository text directly into shell commands, URLs, credential names or workflow IDs.
-- Put timeouts and output-size limits around external calls.
+For hosted providers, configure the narrowest possible API credential. For local inference, keep the provider on a private network.
 
 ## Public repository note
 
-This repository can remain public as long as exported workflow files contain credential references only, never credential values.
+This repository can remain public only while secrets stay in Infisical/runtime/n8n credentials and never in committed workflow exports.

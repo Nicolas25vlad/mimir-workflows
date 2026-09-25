@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -720,
+        -900,
         0
       ],
       "webhookId": "mimir-bug-hunt",
@@ -44,7 +44,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -440,
+        -620,
         0
       ],
       "credentials": {
@@ -56,14 +56,43 @@
     },
     {
       "parameters": {
-        "jsCode": "const scan = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst order = { low: 0, medium: 1, high: 2, critical: 3 };\nconst minimum = input.minimum_severity ?? 'medium';\nconst findings = (scan.findings ?? []).filter(\n  (finding) => (order[finding.severity] ?? 0) >= (order[minimum] ?? 1)\n);\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'bug-hunt',\n    run_id: String($execution.id),\n    contract_version: 2,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    summary: {\n      ...scan.findings_summary,\n      returned_findings: findings.length,\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      analyzed_bytes: scan.inventory?.analyzed_bytes ?? 0,\n      truncated: scan.inventory?.truncated ?? false\n    },\n    findings: findings.slice(0, 100),\n    hotspots: (scan.hotspots ?? []).slice(0, 15),\n    largest_files: (scan.largest_files ?? []).slice(0, 15),\n    languages: scan.languages ?? []\n  }\n}];"
+        "method": "POST",
+        "url": "http://agent-runner:8791/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ kind: 'bug-hunt', input: $('Mimir Webhook').item.json.body ?? {}, scan: $('Scan Repository').item.json }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "bug-hunt-agent",
+      "name": "Run Agent Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -340,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_AGENT_AUTH",
+          "name": "Mimir Agent Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scan = $('Scan Repository').item.json;\nconst agent = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst order = { low: 0, medium: 1, high: 2, critical: 3 };\nconst minimum = input.minimum_severity ?? 'medium';\nconst findings = (scan.findings ?? []).filter(\n  (finding) => (order[finding.severity] ?? 0) >= (order[minimum] ?? 1)\n);\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'bug-hunt',\n    run_id: String($execution.id),\n    contract_version: 3,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    summary: {\n      ...scan.findings_summary,\n      returned_findings: findings.length,\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      analyzed_bytes: scan.inventory?.analyzed_bytes ?? 0,\n      truncated: scan.inventory?.truncated ?? false\n    },\n    deterministic_findings: findings.slice(0, 100),\n    agent_analysis: {\n      configured: Boolean(agent.configured),\n      mode: agent.mode ?? 'unknown',\n      model: agent.model ?? null,\n      latency_ms: agent.latency_ms ?? null,\n      analysis: agent.analysis ?? null,\n      error: agent.error ?? null,\n      usage: agent.usage ?? null\n    },\n    hotspots: (scan.hotspots ?? []).slice(0, 15),\n    largest_files: (scan.largest_files ?? []).slice(0, 15),\n    languages: scan.languages ?? []\n  }\n}];"
       },
       "id": "bug-hunt-shape",
       "name": "Shape Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -140,
+        -40,
         0
       ]
     },
@@ -78,7 +107,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        160,
+        260,
         0
       ]
     }
@@ -96,6 +125,17 @@
       ]
     },
     "Scan Repository": {
+      "main": [
+        [
+          {
+            "node": "Run Agent Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Agent Analysis": {
       "main": [
         [
           {
@@ -125,14 +165,14 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "mimirContractVersion": 2,
+    "mimirContractVersion": 3,
     "deterministicScanner": true,
+    "optionalAgentRunner": true,
     "pipelineSteps": [
-      "clone safely",
-      "inventory",
-      "deterministic rules",
-      "severity filter",
-      "structured findings"
+      "deterministic scan",
+      "optional agent analysis",
+      "separate evidence layers",
+      "structured result"
     ]
   },
   "tags": [],
