@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a workflow, tool or infrastructure improvement
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What recurring engineering problem should Mimir handle better?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired workflow or contract.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Best-fit layer
+      options:
+        - MCP contract
+        - n8n orchestration
+        - Deterministic scanner
+        - Agent runner
+        - Deployment / GitOps
+        - Documentation
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and trade-offs
+      description: Security, performance, provider compatibility or backwards-compatibility concerns.

@@ -3,78 +3,168 @@
 </p>
 
 <p align="center">
-  Self-hosted engineering agent workflows, exposed through MCP and orchestrated with n8n.
+  <strong>Self-hosted engineering analysis for MCP clients, orchestrated by n8n.</strong>
+</p>
+
+<p align="center">
+  Turn recurring work like bug hunts, refactor reviews and implementation planning into reusable tools instead of repeating the same analysis in every chat.
 </p>
 
 <p align="center">
   <a href="https://github.com/Nicolas25vlad/mimir-workflows/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Nicolas25vlad/mimir-workflows/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-2026--07--28-7E9CD8">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-7E9CD8">
+  <img alt="MCP" src="https://img.shields.io/badge/interface-MCP-938AA9">
   <img alt="n8n" src="https://img.shields.io/badge/orchestrator-n8n-C0A36E">
-  <img alt="scanner" src="https://img.shields.io/badge/scanner-deterministic-98BB6C">
-  <img alt="agent" src="https://img.shields.io/badge/agent-provider--neutral-938AA9">
+  <img alt="Runtime" src="https://img.shields.io/badge/runtime-self--hosted-98BB6C">
+</p>
+
+<p align="center">
+  <a href="#why-mimir">Why Mimir?</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#tools">Tools</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#documentation">Docs</a>
 </p>
 
 ---
 
-## What is Mimir?
+## Why Mimir?
 
-**Mimir Workflows** is a self-hosted automation layer for recurring software-engineering analysis.
+AI coding clients are great at reasoning, but a lot of engineering work is repetitive:
 
-The public contract is MCP. n8n owns orchestration. A deterministic repository scanner gathers bounded evidence first, then an optional provider-neutral agent stage can reason over that evidence.
+- inspect a repository before planning a change;
+- look for bug-prone patterns;
+- find high-churn or oversized files;
+- identify refactor candidates;
+- build an implementation plan from repository context.
 
-```text
-ChatGPT / Codex / MCP client
-            │
-            ▼
-      Mimir MCP Gateway
-            │
-            ▼
-             n8n
-        ┌────┴─────────────┐
-        ▼                  ▼
- deterministic         provider-neutral
- repo-scanner          agent-runner
-        │                  │
-        └────────┬─────────┘
-                 ▼
-         structured result
+Mimir turns those routines into **stable MCP tools**.
+
+The expensive and mechanical work happens in your homelab. The chat client receives a compact structured result and can spend its context reasoning about what matters.
+
+> **Core rule:** deterministic evidence and model interpretation are never silently mixed.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    C[MCP client] -->|Streamable HTTP| G[Mimir MCP Gateway]
+    G -->|authenticated webhook| N[n8n]
+
+    N --> S[Repository Scanner]
+    N --> A[Agent Runner]
+
+    S -->|deterministic evidence| N
+    A -->|optional model analysis| N
+
+    N -->|structured JSON| G
+    G --> C
 ```
 
-If no model provider is configured, Mimir continues working in deterministic-only mode.
+Mimir is intentionally split into four small layers:
 
-## MCP tools
-
-| Tool | Behavior |
+| Layer | Responsibility |
 | --- | --- |
-| `bug_hunt` | Deterministic bug/security/debt findings plus optional model analysis. |
-| `refactor_analysis` | Ranked refactor candidates from churn, size and risk signals plus optional model analysis. |
-| `implementation_plan` | Repository-grounded plan with deterministic fallback and optional agent-generated plan. |
+| **MCP Gateway** | Stable public tool contract, auth and transport |
+| **n8n** | Workflow orchestration, retries and composition |
+| **Repository Scanner** | Bounded read-only repository evidence |
+| **Agent Runner** | Optional provider-neutral LLM analysis |
 
-Deterministic evidence and probabilistic analysis are returned as separate fields on purpose.
+The scanner and agent runner are internal services. Only the MCP gateway is intended to be exposed outside the Docker network.
 
-## Agent runner
+## Tools
 
-The agent runner speaks a small internal contract and calls any **OpenAI-compatible chat completions endpoint** configured through environment variables.
+### `bug_hunt`
 
-That means the workflow itself does not care whether the backend is:
+Finds deterministic bug, security and debt signals, then optionally asks the configured model for a second-pass analysis.
+
+```json
+{
+  "repository": "owner/repository",
+  "ref": "main",
+  "minimum_severity": "medium",
+  "focus": ["auth", "error handling"]
+}
+```
+
+### `refactor_analysis`
+
+Ranks refactor candidates using git churn, file size and deterministic risk signals. Optional model analysis can propose incremental changes.
+
+```json
+{
+  "repository": "owner/repository",
+  "ref": "main",
+  "objective": "maintainability",
+  "target": "repository"
+}
+```
+
+### `implementation_plan`
+
+Builds a repository-grounded implementation plan. If no model provider is configured, Mimir still returns a deterministic baseline plan.
+
+```json
+{
+  "repository": "owner/repository",
+  "ref": "main",
+  "request": "Add rate limiting to the public API",
+  "depth": "deep"
+}
+```
+
+## What the scanner actually looks at
+
+The scanner currently collects:
+
+- resolved commit SHA for the requested ref;
+- bounded file inventory and language distribution;
+- recent commit history;
+- high-churn files;
+- largest analyzed source/config files;
+- project entry/config files;
+- deterministic findings such as suspicious `eval`, disabled TLS verification, empty catches, shell execution patterns and secret-like literals.
+
+It does **not** run repository code, package installs, tests, hooks or build scripts.
+
+## Agent-assisted mode
+
+The agent runner works with OpenAI-compatible chat completion APIs.
+
+Examples include:
 
 - NVIDIA NIM;
 - vLLM;
-- an Ollama-compatible OpenAI endpoint;
-- another OpenAI-compatible provider.
+- OpenAI-compatible Ollama gateways;
+- other compatible providers.
 
-The runtime uses `AGENT_BASE_URL`, `AGENT_MODEL`, and optionally `AGENT_API_KEY`.
+Configure:
 
-Repository content is explicitly treated as untrusted prompt data. Agent prompts instruct the model to ignore instructions embedded in code, docs, comments and commit messages.
+```dotenv
+AGENT_BASE_URL=https://provider.example/v1
+AGENT_API_KEY=...
+AGENT_MODEL=your-model
+```
 
-If the provider is unavailable, the runner returns `agent-error` metadata and the deterministic workflow still completes.
+Leave those variables blank and Mimir runs in **deterministic-only mode**.
+
+If the provider is temporarily unavailable, the deterministic result is still returned with agent error metadata instead of failing the whole workflow.
 
 ## Quick start
 
-### 1. Configure
+### Requirements
+
+- Docker with Compose v2
+- enough memory to run n8n plus the Mimir services
+- optional GitHub token for private repositories
+- optional OpenAI-compatible inference endpoint
+
+### 1. Clone and configure
 
 ```bash
+git clone https://github.com/Nicolas25vlad/mimir-workflows.git
+cd mimir-workflows
 cp .env.example .env
 ```
 
@@ -86,131 +176,167 @@ openssl rand -hex 32
 
 Use different values for:
 
-- `MCP_AUTH_TOKEN`
-- `N8N_WEBHOOK_TOKEN`
-- `SCANNER_AUTH_TOKEN`
-- `AGENT_AUTH_TOKEN`
-- `N8N_ENCRYPTION_KEY`
-
-For private repositories, set a read-only `GITHUB_TOKEN`.
-
-To enable agent-assisted mode, set:
-
-```dotenv
-AGENT_BASE_URL=https://your-provider.example/v1
-AGENT_API_KEY=...
-AGENT_MODEL=your-model
+```text
+MCP_AUTH_TOKEN
+N8N_WEBHOOK_TOKEN
+SCANNER_AUTH_TOKEN
+AGENT_AUTH_TOKEN
+N8N_ENCRYPTION_KEY
 ```
 
-Leave those blank to run deterministic-only.
-
-### 2. Start
+### 2. Start the stack
 
 ```bash
 docker compose up -d --build
 ```
 
-- n8n editor: `http://localhost:5678`
-- MCP endpoint: `http://localhost:8787/mcp`
-- scanner and agent-runner: Docker-internal only
+Check the gateway:
+
+```bash
+curl -fsS http://localhost:8787/healthz
+```
+
+Expected shape:
+
+```json
+{
+  "status": "ok",
+  "service": "mimir-workflows",
+  "version": "0.3.0"
+}
+```
 
 ### 3. Configure n8n credentials
 
-Create three Header Auth credentials.
+Open n8n at `http://localhost:5678` and create three **Header Auth** credentials:
 
-**Mimir Webhook Auth**
+| Credential | Header | Value |
+| --- | --- | --- |
+| `Mimir Webhook Auth` | `x-mimir-token` | `N8N_WEBHOOK_TOKEN` |
+| `Mimir Scanner Auth` | `x-mimir-internal-token` | `SCANNER_AUTH_TOKEN` |
+| `Mimir Agent Auth` | `x-mimir-agent-token` | `AGENT_AUTH_TOKEN` |
 
-- header: `x-mimir-token`
-- value: `N8N_WEBHOOK_TOKEN`
+### 4. Import the workflows
 
-**Mimir Scanner Auth**
-
-- header: `x-mimir-internal-token`
-- value: `SCANNER_AUTH_TOKEN`
-
-**Mimir Agent Auth**
-
-- header: `x-mimir-agent-token`
-- value: `AGENT_AUTH_TOKEN`
-
-### 4. Import workflows
-
-Import the JSON files from `workflows/` and attach the credentials above if n8n cannot resolve the placeholder IDs automatically.
-
-## Runtime configuration
-
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `MCP_AUTH_TOKEN` | yes | - | MCP bearer token |
-| `N8N_WEBHOOK_TOKEN` | yes | - | gateway → n8n |
-| `SCANNER_AUTH_TOKEN` | yes | - | n8n → scanner |
-| `AGENT_AUTH_TOKEN` | yes | - | n8n → agent runner |
-| `GITHUB_TOKEN` | no | empty | private repository read access |
-| `AGENT_BASE_URL` | no | empty | OpenAI-compatible `/v1` base URL |
-| `AGENT_API_KEY` | no | empty | provider credential |
-| `AGENT_MODEL` | no | empty | provider model ID |
-| `AGENT_TIMEOUT_MS` | no | `120000` | provider timeout |
-| `AGENT_MAX_INPUT_CHARS` | no | `120000` | model context budget guard |
-| `AGENT_MAX_OUTPUT_TOKENS` | no | `2500` | output cap |
-| `N8N_ENCRYPTION_KEY` | yes | - | n8n credential encryption |
-
-See `.env.example` for scanner limits and remaining settings.
-
-## Repository layout
+Import the JSON files under `workflows/`:
 
 ```text
-src/
-├── agent/
-│   ├── client.ts
-│   ├── config.ts
-│   └── index.ts
-├── scanner/
-│   ├── config.ts
-│   ├── index.ts
-│   └── repository.ts
-├── auth.ts
-├── config.ts
-├── index.ts
-└── n8n-client.ts
-
-workflows/
-├── bug-hunt.json
-├── refactor-analysis.json
-└── implementation-plan.json
+bug-hunt.json
+refactor-analysis.json
+implementation-plan.json
 ```
 
-## Design principles
+Attach the credentials above if n8n cannot resolve the placeholder IDs automatically, then activate the workflows.
 
-- **MCP is the contract.**
-- **Deterministic before probabilistic.**
-- **Evidence and model interpretation stay separate.**
-- **n8n orchestrates; workers compute.**
-- **Analysis is read-only by default.**
-- **Repository content is untrusted.**
-- **Secrets stay in runtime credentials, never exported workflow JSON.**
-- **Provider failure must degrade gracefully, not break the deterministic path.**
+### 5. Connect an MCP client
 
-## Roadmap
+Point the client to:
 
-- [x] MCP gateway
-- [x] n8n orchestration
-- [x] deterministic repository scanner
-- [x] Git churn + bounded source inventory
-- [x] deterministic first-pass findings
-- [x] provider-neutral agent runner
-- [x] deterministic fallback when agent provider is disabled/unavailable
-- [ ] GitHub App installation auth
+```text
+https://your-mimir-host.example/mcp
+```
+
+with:
+
+```http
+Authorization: Bearer <MCP_AUTH_TOKEN>
+```
+
+The MCP client should handle protocol initialization and tool discovery.
+
+See [docs/MCP.md](docs/MCP.md) for the contract and connection notes.
+
+## Security model
+
+Mimir treats repositories as hostile input.
+
+Some important boundaries:
+
+- arbitrary clone hosts are rejected;
+- repository code is never executed by the scanner;
+- repository text is treated as untrusted prompt data;
+- secret-like evidence is redacted;
+- scanner and agent-runner ports are internal-only;
+- workers run read-only with dropped Linux capabilities;
+- every internal hop uses a separate credential;
+- provider failure degrades gracefully instead of corrupting deterministic output.
+
+Read the full threat model in [docs/SECURITY.md](docs/SECURITY.md).
+
+## Project structure
+
+```text
+.
+├── src/
+│   ├── agent/                # provider-neutral LLM worker
+│   ├── scanner/              # deterministic repository scanner
+│   ├── auth.ts
+│   ├── config.ts
+│   ├── index.ts              # MCP gateway
+│   └── n8n-client.ts
+├── workflows/                # importable n8n workflows
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── DEPLOYMENT.md
+│   ├── MCP.md
+│   └── SECURITY.md
+├── .github/
+├── compose.yml
+├── Dockerfile
+└── AGENTS.md
+```
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Components, data flow and design boundaries |
+| [Deployment](docs/DEPLOYMENT.md) | Homelab, reverse proxy and GitOps deployment |
+| [MCP integration](docs/MCP.md) | Endpoint, auth and tool contracts |
+| [Security](docs/SECURITY.md) | Threat model and hardening |
+| [Workflow internals](workflows/README.md) | n8n credentials and workflow pipeline |
+| [Contributing](CONTRIBUTING.md) | Development and contribution workflow |
+| [Agent instructions](AGENTS.md) | Guardrails for coding agents working on this repository |
+
+## Development
+
+```bash
+npm install
+npm run check
+docker build -t mimir-workflows:local .
+```
+
+For local process development:
+
+```bash
+npm run dev
+npm run dev:scanner
+npm run dev:agent
+```
+
+CI validates:
+
+- TypeScript type checking;
+- unit tests;
+- production build;
+- n8n workflow JSON structure;
+- Docker image build.
+
+## Status
+
+Mimir is currently an early-stage homelab project. The MCP contracts are intentionally small while the analysis workers mature.
+
+### Next
+
+- [ ] GitHub App installation authentication
 - [ ] Semgrep / CodeQL adapters
-- [ ] result persistence + cache
-- [ ] PR-triggered background analyses
-- [ ] OpenTelemetry traces and token-cost metrics
-
-## Security
-
-The scanner and agent-runner are not published to the host in the starter Compose file. Both use separate authentication boundaries, run read-only, drop Linux capabilities and use `no-new-privileges`.
-
-See [docs/SECURITY.md](docs/SECURITY.md).
+- [ ] result cache and persistence
+- [ ] PR-triggered background analysis
+- [ ] OpenTelemetry traces
+- [ ] token usage and estimated model-cost metrics
 
 ## License
 
-MIT © 2026 Nicolas Vlad.
+Released under the [MIT License](LICENSE).
+
+Copyright © 2026 Nicolas Vlad.
