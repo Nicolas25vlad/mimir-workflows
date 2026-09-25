@@ -1,6 +1,6 @@
 {
   "name": "mimir-workflows",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted MCP gateway for n8n engineering agent workflows.",
@@ -10,10 +10,13 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:scanner": "tsx watch src/scanner/index.ts",
     "start": "node dist/index.js",
+    "start:scanner": "node dist/scanner/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "npm run typecheck && npm run build"
+    "test": "tsx --test src/auth.test.ts src/scanner/repository.test.ts",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

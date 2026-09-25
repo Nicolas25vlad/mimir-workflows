@@ -1,25 +1,37 @@
 # n8n workflows
 
-The JSON files in this directory are importable starter workflows.
+The workflow JSON files are importable orchestration definitions for Mimir.
 
-They intentionally implement the stable webhook contract before choosing a specific scanner or LLM provider. After import:
+## Required credentials
 
-1. create a Header Auth credential named `Mimir Webhook Auth`;
-2. use header `x-mimir-token`;
-3. use the same value configured as `N8N_WEBHOOK_TOKEN` in the gateway;
-4. attach the credential to each Webhook node;
-5. activate the workflows.
+Create two n8n **Header Auth** credentials.
+
+### Mimir Webhook Auth
+
+- header: `x-mimir-token`
+- value: `N8N_WEBHOOK_TOKEN`
+
+Used by the public workflow Webhook nodes.
+
+### Mimir Scanner Auth
+
+- header: `x-mimir-internal-token`
+- value: `SCANNER_AUTH_TOKEN`
+
+Used by the internal `Scan Repository` HTTP Request nodes.
+
+If imported credential IDs cannot be resolved, select these credentials manually by name.
 
 ## Contract
 
-All workflows receive a JSON body from the MCP gateway and return a JSON object.
+| Workflow | Webhook path | Deterministic behavior |
+| --- | --- | --- |
+| Bug Hunt | `mimir/bug-hunt` | Severity-filtered findings + hotspots + large files |
+| Refactor Analysis | `mimir/refactor-analysis` | Ranked candidates from churn, size and risk signals |
+| Implementation Plan | `mimir/implementation-plan` | Repository-grounded affected paths + phased validation plan |
 
-Keep these webhook paths stable:
+The scanner endpoint is internal:
 
-| Workflow | Path |
-| --- | --- |
-| Bug Hunt | `mimir/bug-hunt` |
-| Refactor Analysis | `mimir/refactor-analysis` |
-| Implementation Plan | `mimir/implementation-plan` |
+`POST http://repo-scanner:8790/scan`
 
-Internal nodes can change freely without breaking MCP clients.
+Internal nodes may evolve without breaking MCP clients as long as the workflow output contract remains compatible.

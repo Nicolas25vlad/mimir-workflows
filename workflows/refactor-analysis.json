@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -460,
+        -720,
         0
       ],
       "webhookId": "mimir-refactor-analysis",
@@ -27,14 +27,43 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'refactor-analysis',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'resolve repository and target',\n      'measure complexity and duplication',\n      'identify dependency and ownership boundaries',\n      'rank refactor candidates by impact and risk',\n      'build an incremental migration plan',\n      'return evidence and affected paths'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add analysis/agent nodes before this response node.'\n  }\n}];"
+        "method": "POST",
+        "url": "http://repo-scanner:8790/scan",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ repository: $('Mimir Webhook').item.json.body.repository, ref: $('Mimir Webhook').item.json.body.ref ?? 'main' }) }}",
+        "options": {
+          "timeout": 120000
+        }
       },
-      "id": "refactor-analysis-contract",
-      "name": "Validate Contract",
+      "id": "refactor-analysis-scanner",
+      "name": "Scan Repository",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_SCANNER_AUTH",
+          "name": "Mimir Scanner Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scan = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst candidates = new Map();\n\nfunction touch(path, score, reason) {\n  if (!path) return;\n  const current = candidates.get(path) ?? { path, score: 0, reasons: [] };\n  current.score += score;\n  if (!current.reasons.includes(reason)) current.reasons.push(reason);\n  candidates.set(path, current);\n}\n\nfor (const hotspot of scan.hotspots ?? []) {\n  touch(hotspot.path, Math.min(Number(hotspot.touches ?? 0), 20) * 3, `changed ${hotspot.touches} times in recent history`);\n}\n\nfor (const file of scan.largest_files ?? []) {\n  if ((file.lines ?? 0) < 250) continue;\n  touch(file.path, Math.min(Math.ceil(file.lines / 100), 15) * 2, `${file.lines} lines`);\n}\n\nfor (const finding of scan.findings ?? []) {\n  if (finding.severity === 'low') continue;\n  const weight = finding.severity === 'critical' ? 12 : finding.severity === 'high' ? 8 : 4;\n  touch(finding.path, weight, `${finding.severity} ${finding.category}: ${finding.rule}`);\n}\n\nconst ranked = [...candidates.values()]\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 20)\n  .map((item, index) => ({ rank: index + 1, ...item }));\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'refactor-analysis',\n    run_id: String($execution.id),\n    contract_version: 2,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    objective: input.objective ?? 'maintainability',\n    target: input.target ?? 'repository',\n    summary: {\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      candidate_count: ranked.length,\n      findings: scan.findings_summary ?? {}\n    },\n    candidates: ranked,\n    hotspots: (scan.hotspots ?? []).slice(0, 20),\n    largest_files: (scan.largest_files ?? []).slice(0, 20),\n    constraints: input.constraints ?? []\n  }\n}];"
+      },
+      "id": "refactor-analysis-shape",
+      "name": "Shape Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -180,
+        -140,
         0
       ]
     },
@@ -49,7 +78,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        120,
+        160,
         0
       ]
     }
@@ -59,14 +88,25 @@
       "main": [
         [
           {
-            "node": "Validate Contract",
+            "node": "Scan Repository",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate Contract": {
+    "Scan Repository": {
+      "main": [
+        [
+          {
+            "node": "Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Result": {
       "main": [
         [
           {
@@ -85,13 +125,14 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "mimirContractVersion": 1,
-    "starterSteps": [
-      "repository context",
-      "complexity metrics",
-      "hotspots",
-      "risk analysis",
-      "migration plan"
+    "mimirContractVersion": 2,
+    "deterministicScanner": true,
+    "pipelineSteps": [
+      "clone safely",
+      "git hotspots",
+      "file metrics",
+      "risk weighting",
+      "ranked candidates"
     ]
   },
   "tags": [],

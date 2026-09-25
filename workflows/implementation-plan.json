@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -460,
+        -720,
         0
       ],
       "webhookId": "mimir-implementation-plan",
@@ -27,14 +27,43 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nif (typeof body.request !== 'string' || body.request.length < 3) {\n  throw new Error('request must contain at least 3 characters');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'implementation-plan',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'inspect repository structure and conventions',\n      'locate affected components',\n      'identify dependencies and migration risks',\n      'produce ordered implementation steps',\n      'define validation and rollback checks',\n      'return a compact execution plan'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add repository-grounding and planning agents before this response node.'\n  }\n}];"
+        "method": "POST",
+        "url": "http://repo-scanner:8790/scan",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ repository: $('Mimir Webhook').item.json.body.repository, ref: $('Mimir Webhook').item.json.body.ref ?? 'main' }) }}",
+        "options": {
+          "timeout": 120000
+        }
       },
-      "id": "implementation-plan-contract",
-      "name": "Validate Contract",
+      "id": "implementation-plan-scanner",
+      "name": "Scan Repository",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_SCANNER_AUTH",
+          "name": "Mimir Scanner Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scan = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst request = String(input.request ?? '');\nconst tokens = [...new Set(\n  request.toLowerCase().split(/[^a-z0-9_.-]+/).filter((token) => token.length >= 3)\n)].slice(0, 30);\n\nconst paths = new Map();\nfunction add(path, base, reason) {\n  if (!path) return;\n  const lower = String(path).toLowerCase();\n  let score = base;\n  for (const token of tokens) {\n    if (lower.includes(token)) score += 10;\n  }\n  const current = paths.get(path);\n  if (!current || score > current.score) paths.set(path, { path, score, reason });\n}\n\nfor (const hotspot of scan.hotspots ?? []) add(hotspot.path, Math.min(hotspot.touches ?? 0, 15), 'recently active file');\nfor (const file of scan.largest_files ?? []) add(file.path, Math.min(Math.ceil((file.lines ?? 0) / 200), 8), 'large implementation surface');\nfor (const file of scan.key_files ?? []) add(file.path, 6, 'project/configuration entry point');\nfor (const finding of scan.findings ?? []) add(finding.path, finding.severity === 'high' ? 7 : 3, 'existing risk signal');\n\nconst affectedCandidates = [...paths.values()]\n  .filter((item) => item.score > 0)\n  .sort((a, b) => b.score - a.score)\n  .slice(0, 15);\n\nconst primary = affectedCandidates.slice(0, 6).map((item) => item.path);\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'implementation-plan',\n    run_id: String($execution.id),\n    contract_version: 2,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    request,\n    depth: input.depth ?? 'standard',\n    affected_candidates: affectedCandidates,\n    plan: [\n      {\n        phase: 1,\n        name: 'Ground the change',\n        actions: [\n          `Inspect the current behavior around: ${primary.join(', ') || 'the repository entry points'}`,\n          'Confirm interfaces, configuration boundaries, and existing tests before editing.'\n        ]\n      },\n      {\n        phase: 2,\n        name: 'Implement incrementally',\n        actions: [\n          `Implement the requested change: ${request}`,\n          'Keep changes scoped to the smallest coherent module boundary and preserve existing contracts unless the request requires otherwise.'\n        ]\n      },\n      {\n        phase: 3,\n        name: 'Validate',\n        actions: [\n          'Run the repository-native test, lint, typecheck, and build commands.',\n          'Re-run deterministic Mimir scanning and compare new high/critical findings against this baseline.'\n        ]\n      },\n      {\n        phase: 4,\n        name: 'Review and document',\n        actions: [\n          'Review configuration, security, failure paths, and backwards compatibility.',\n          'Update docs or examples when public behavior or setup changes.'\n        ]\n      }\n    ],\n    repository_context: {\n      languages: scan.languages ?? [],\n      hotspots: (scan.hotspots ?? []).slice(0, 12),\n      largest_files: (scan.largest_files ?? []).slice(0, 12),\n      findings_summary: scan.findings_summary ?? {}\n    },\n    constraints: input.constraints ?? []\n  }\n}];"
+      },
+      "id": "implementation-plan-shape",
+      "name": "Shape Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -180,
+        -140,
         0
       ]
     },
@@ -49,7 +78,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        120,
+        160,
         0
       ]
     }
@@ -59,14 +88,25 @@
       "main": [
         [
           {
-            "node": "Validate Contract",
+            "node": "Scan Repository",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate Contract": {
+    "Scan Repository": {
+      "main": [
+        [
+          {
+            "node": "Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Result": {
       "main": [
         [
           {
@@ -85,13 +125,14 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "mimirContractVersion": 1,
-    "starterSteps": [
-      "repository grounding",
-      "affected components",
-      "dependencies",
-      "ordered tasks",
-      "validation"
+    "mimirContractVersion": 2,
+    "deterministicScanner": true,
+    "pipelineSteps": [
+      "clone safely",
+      "repository map",
+      "path relevance",
+      "phased plan",
+      "validation baseline"
     ]
   },
   "tags": [],

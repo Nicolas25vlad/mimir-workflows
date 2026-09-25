@@ -1,10 +1,10 @@
 # Architecture
 
-Mimir is split into two intentionally boring layers.
+Mimir has three runtime layers.
 
 ## 1. MCP gateway
 
-The TypeScript gateway owns the public tool contract.
+The TypeScript gateway owns the public contract.
 
 Responsibilities:
 
@@ -15,47 +15,69 @@ Responsibilities:
 - enforce workflow timeouts;
 - return structured workflow results.
 
-It should **not** clone repositories, call arbitrary shell commands, or contain large prompt chains.
+It should not clone repositories, execute repository code, or contain large prompt chains.
 
 ## 2. n8n orchestration
 
-n8n owns orchestration.
+n8n owns routing and composition.
 
-A mature workflow may coordinate:
+Current workflows:
 
-1. repository metadata and diff collection;
-2. deterministic scanners such as Semgrep, CodeQL or language-native linters;
-3. focused LLM agents;
-4. evidence normalization;
-5. duplicate finding removal;
-6. confidence/severity scoring;
-7. compact result synthesis.
+1. receive and authenticate the MCP-originated webhook;
+2. call the internal repository scanner;
+3. turn deterministic context into a bounded workflow-specific result;
+4. respond to the MCP gateway.
 
-The initial JSON exports are contract-first starters. They keep the webhook paths and input/output shape stable while those internal nodes evolve.
+Future workflows can fan out to static-analysis workers and LLM agents after the scanner without changing MCP clients.
+
+## 3. Repository scanner
+
+The scanner is an internal read-only worker.
+
+It:
+
+- accepts only GitHub repositories;
+- resolves a requested ref to a commit;
+- performs a shallow fetch into an ephemeral directory;
+- inventories bounded source/config content;
+- computes recent git churn;
+- detects language mix and large files;
+- applies deterministic bug/security/debt rules;
+- redacts secret-like evidence;
+- removes the checkout after every request.
+
+The scanner does **not** execute repository code, dependency install scripts, builds, tests, hooks, or arbitrary shell supplied by the repository.
 
 ## Boundary contract
 
-MCP tool names are stable API surface:
+MCP tools are stable API surface:
 
 - `bug_hunt`
 - `refactor_analysis`
 - `implementation_plan`
 
-n8n webhook paths are internal implementation details:
+Internal webhook paths:
 
 - `/webhook/mimir/bug-hunt`
 - `/webhook/mimir/refactor-analysis`
 - `/webhook/mimir/implementation-plan`
 
-Do not expose a generic "run any workflow" MCP tool. It couples clients to internal IDs and widens the blast radius of mistakes.
+Internal scanner endpoint:
 
-## Suggested future workers
+- `POST http://repo-scanner:8790/scan`
 
-Keep expensive or specialized work outside giant n8n Code nodes:
+Every boundary has a separate secret.
 
-- `repo-scanner`: checkout, tree inventory, language detection, diff collection;
-- `static-analysis`: Semgrep/CodeQL/linter adapters;
-- `agent-runner`: provider-neutral LLM calls and structured outputs;
-- `result-store`: persistence keyed by repository/ref/PR/run ID.
+Do not expose a generic "run any workflow", "clone arbitrary URL", or "execute repository command" primitive.
 
-n8n then stays what it is good at: routing, fan-out/fan-in, retries, scheduling and visibility.
+## Analysis ladder
+
+Mimir should grow in this order:
+
+1. deterministic repository context;
+2. deterministic static analysis;
+3. focused agent analysis over selected evidence;
+4. synthesis and deduplication;
+5. optional write-capable workflows behind separate explicit tools.
+
+That ordering keeps cost, hallucination surface, and blast radius low.

@@ -18,6 +18,33 @@ services:
         condition: service_started
     networks:
       - mimir
+    security_opt:
+      - no-new-privileges:true
+
+  repo-scanner:
+    build:
+      context: .
+    command: ["node", "dist/scanner/index.js"]
+    restart: unless-stopped
+    environment:
+      SCANNER_HOST: ${SCANNER_HOST:-0.0.0.0}
+      SCANNER_PORT: ${SCANNER_PORT:-8790}
+      SCANNER_AUTH_TOKEN: ${SCANNER_AUTH_TOKEN:?SCANNER_AUTH_TOKEN is required}
+      SCANNER_TIMEOUT_MS: ${SCANNER_TIMEOUT_MS:-120000}
+      SCANNER_GIT_DEPTH: ${SCANNER_GIT_DEPTH:-80}
+      SCANNER_MAX_FILES: ${SCANNER_MAX_FILES:-180}
+      SCANNER_MAX_FILE_BYTES: ${SCANNER_MAX_FILE_BYTES:-262144}
+      SCANNER_MAX_TOTAL_BYTES: ${SCANNER_MAX_TOTAL_BYTES:-4194304}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    networks:
+      - mimir
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   n8n:
     image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:latest}
@@ -38,6 +65,9 @@ services:
       - "127.0.0.1:5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
+    depends_on:
+      repo-scanner:
+        condition: service_started
     networks:
       - mimir
 

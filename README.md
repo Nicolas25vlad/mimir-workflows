@@ -11,15 +11,16 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
   <img alt="MCP" src="https://img.shields.io/badge/MCP-2026--07--28-7E9CD8">
   <img alt="n8n" src="https://img.shields.io/badge/orchestrator-n8n-C0A36E">
+  <img alt="scanner" src="https://img.shields.io/badge/scanner-deterministic-98BB6C">
 </p>
 
 ---
 
 ## What is Mimir?
 
-**Mimir Workflows** is a small, self-hosted automation layer for recurring software-engineering work.
+**Mimir Workflows** is a self-hosted automation layer for recurring software-engineering analysis.
 
-Instead of making an AI client repeatedly perform mechanical repository analysis inside the chat context, Mimir exposes stable MCP tools and delegates the heavy lifting to n8n workflows running in your homelab.
+The public surface is MCP. n8n owns orchestration. A separate read-only repository scanner does the cheap deterministic work before an LLM ever sees the problem.
 
 ```text
 ChatGPT / Codex / MCP client
@@ -31,25 +32,41 @@ ChatGPT / Codex / MCP client
             │ authenticated webhook
             ▼
              n8n
-        ┌────┼─────┐
-        ▼    ▼     ▼
-   scanners  LLMs  GitHub
-        └────┬─────┘
-             ▼
-     structured result
+        ┌────┴──────────────┐
+        ▼                   ▼
+ deterministic          agent / LLM
+ repo-scanner            stages
+        │                   │
+        └─────────┬─────────┘
+                  ▼
+          structured result
 ```
 
-The gateway exposes **semantic tools**, not a generic `execute_workflow(id)` escape hatch. That keeps the MCP surface predictable, auditable and much harder to misuse.
+The gateway exposes semantic tools rather than a generic `execute_workflow(id)` escape hatch. Clients never need to know n8n workflow IDs or internal topology.
 
-## Initial MCP tools
+## MCP tools
 
-| Tool | Purpose |
+| Tool | Current behavior |
 | --- | --- |
-| `bug_hunt` | Inspect a repository/ref for likely bugs, regressions and suspicious edge cases. |
-| `refactor_analysis` | Identify maintainability hotspots and build a focused refactor proposal. |
-| `implementation_plan` | Convert a feature, issue or engineering request into an implementation plan. |
+| `bug_hunt` | Clones a GitHub ref read-only, scans deterministic bug/security/debt patterns, filters by severity and returns evidence + hotspots. |
+| `refactor_analysis` | Combines git churn, large-file metrics and risk findings into ranked refactor candidates. |
+| `implementation_plan` | Grounds a phased implementation plan in repository structure, hotspots, risk signals and path relevance. |
 
-The bundled n8n workflows are executable **contract-first starters**. They validate MCP → gateway → n8n end to end and deliberately leave provider-specific scanner/LLM nodes pluggable.
+The next layer is agent synthesis: Semgrep/CodeQL adapters and provider-neutral LLM workers can be inserted after the deterministic scan without changing the MCP contracts.
+
+## Repository scanner
+
+The scanner currently collects:
+
+- repository/ref → immutable commit SHA;
+- bounded file inventory and language distribution;
+- recent commit metadata;
+- files with the most recent churn;
+- largest analyzed source/config files;
+- deterministic findings for risky patterns such as dynamic eval, disabled TLS verification, empty exception handling and secret-like literals;
+- redacted excerpts from a small set of project entry/config files.
+
+It deliberately rejects non-GitHub clone hosts. This prevents workflows from turning repository input into a generic network fetch primitive.
 
 ## Quick start
 
@@ -59,13 +76,20 @@ The bundled n8n workflows are executable **contract-first starters**. They valid
 cp .env.example .env
 ```
 
-Generate independent secrets:
+Generate **four different** secrets:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Use separate values for `MCP_AUTH_TOKEN`, `N8N_WEBHOOK_TOKEN` and `N8N_ENCRYPTION_KEY`.
+Use independent values for:
+
+- `MCP_AUTH_TOKEN`
+- `N8N_WEBHOOK_TOKEN`
+- `SCANNER_AUTH_TOKEN`
+- `N8N_ENCRYPTION_KEY`
+
+For private repositories, also set `GITHUB_TOKEN` to a read-only token with access only to the repositories Mimir should inspect.
 
 ### 2. Start
 
@@ -75,25 +99,34 @@ docker compose up -d --build
 
 - n8n editor: `http://localhost:5678`
 - MCP endpoint: `http://localhost:8787/mcp`
-- health: `http://localhost:8787/healthz`
+- gateway health: `http://localhost:8787/healthz`
+- scanner: internal Docker network only
 
-### 3. Configure n8n webhook authentication
+### 3. Configure n8n credentials
 
-In n8n, create one **Header Auth** credential:
+Create two **Header Auth** credentials in n8n.
 
-- credential name: `Mimir Webhook Auth`
-- header name: `x-mimir-token`
-- header value: the same value as `N8N_WEBHOOK_TOKEN`
+**Mimir Webhook Auth**
+
+- header: `x-mimir-token`
+- value: `N8N_WEBHOOK_TOKEN`
+
+**Mimir Scanner Auth**
+
+- header: `x-mimir-internal-token`
+- value: `SCANNER_AUTH_TOKEN`
+
+The workflow JSON exports reference those credential names but never contain their values.
 
 ### 4. Import and activate workflows
 
-Import the JSON files under `workflows/`:
+Import:
 
-- `bug-hunt.json`
-- `refactor-analysis.json`
-- `implementation-plan.json`
+- `workflows/bug-hunt.json`
+- `workflows/refactor-analysis.json`
+- `workflows/implementation-plan.json`
 
-If n8n cannot resolve the credential placeholder automatically, select **Mimir Webhook Auth** on each Webhook node, then activate the workflows.
+If n8n cannot resolve credential placeholders automatically, select the two credentials above in the Webhook and Scan Repository nodes.
 
 ### 5. Smoke test
 
@@ -101,7 +134,7 @@ If n8n cannot resolve the credential placeholder automatically, select **Mimir W
 curl -s http://localhost:8787/healthz
 ```
 
-Then list MCP tools:
+List MCP tools:
 
 ```bash
 curl -s -X POST http://localhost:8787/mcp \
@@ -116,21 +149,28 @@ curl -s -X POST http://localhost:8787/mcp \
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `MCP_AUTH_TOKEN` | yes | - | Bearer token required by the MCP endpoint. |
-| `MCP_HOST` | no | `0.0.0.0` | Gateway bind address. |
-| `MCP_PORT` | no | `8787` | Gateway port. |
-| `MCP_ALLOWED_HOSTS` | no | `localhost,127.0.0.1` | Comma-separated host allowlist used by the MCP Express adapter. |
-| `N8N_BASE_URL` | yes | `http://n8n:5678` | Base URL used by the gateway to reach n8n. |
-| `N8N_WEBHOOK_TOKEN` | yes | - | Value sent in the `x-mimir-token` header. |
-| `N8N_TIMEOUT_MS` | no | `120000` | Maximum workflow request time. |
+| `MCP_ALLOWED_HOSTS` | no | `localhost,127.0.0.1` | Host allowlist used by the MCP Express adapter. |
+| `N8N_BASE_URL` | yes | `http://n8n:5678` | Internal n8n URL. |
+| `N8N_WEBHOOK_TOKEN` | yes | - | Gateway → n8n shared secret. |
+| `N8N_TIMEOUT_MS` | no | `120000` | Workflow request timeout. |
+| `SCANNER_AUTH_TOKEN` | yes | - | n8n → scanner shared secret. |
+| `SCANNER_GIT_DEPTH` | no | `80` | Git history depth used for churn analysis. |
+| `SCANNER_MAX_FILES` | no | `180` | Maximum files whose contents are analyzed. |
+| `SCANNER_MAX_FILE_BYTES` | no | `262144` | Per-file analysis limit. |
+| `SCANNER_MAX_TOTAL_BYTES` | no | `4194304` | Total content budget per scan. |
+| `GITHUB_TOKEN` | no | empty | Read-only GitHub token for private repositories. |
 | `N8N_ENCRYPTION_KEY` | yes | - | Encrypts n8n credentials at rest. |
-
-For a public tunnel, add the public hostname to `MCP_ALLOWED_HOSTS` and terminate TLS before the gateway.
 
 ## Repository layout
 
 ```text
 .
 ├── src/
+│   ├── scanner/
+│   │   ├── config.ts
+│   │   ├── index.ts
+│   │   └── repository.ts
+│   ├── auth.ts
 │   ├── config.ts
 │   ├── index.ts
 │   └── n8n-client.ts
@@ -150,33 +190,36 @@ For a public tunnel, add the public hostname to `MCP_ALLOWED_HOSTS` and terminat
 
 ## Design principles
 
-- **MCP is the contract.** Clients never need n8n workflow IDs or internal topology.
-- **n8n orchestrates.** Long-lived business logic belongs in workers, scanners or explicit agent nodes, not giant Code nodes.
-- **Structured in, structured out.** Workflows return compact JSON instead of walls of model prose.
+- **MCP is the contract.** Internal workflows can evolve without breaking clients.
+- **Deterministic before probabilistic.** Cheap scanners reduce context and give agents evidence.
+- **n8n orchestrates.** Heavy compute belongs in explicit workers rather than giant Code nodes.
+- **Structured in, structured out.** Bounded JSON beats unbounded model prose.
 - **Read-only by default.** Analysis tools do not modify repositories.
-- **Secrets never enter workflow exports.** Use n8n credentials, Infisical or runtime secret injection.
-- **GitOps-friendly.** Runtime config is containerized so the service can be registered in a separate homelab GitOps repository.
+- **Secrets never enter exports.** Use n8n credentials, Infisical or runtime secret injection.
+- **GitOps-friendly.** Runtime state and deployment configuration remain easy to register in a separate homelab GitOps repository.
 
 ## Roadmap
 
 - [x] MCP gateway over Streamable HTTP
 - [x] Bearer protection for MCP
 - [x] Authenticated n8n webhook boundary
-- [x] Importable starter workflows
 - [x] Docker Compose bootstrap
-- [x] CI typecheck/build
-- [ ] GitHub App integration
-- [ ] Repository scanner worker
-- [ ] LLM provider adapters
-- [ ] Workflow result persistence
+- [x] CI typecheck/tests/build
+- [x] Repository scanner worker
+- [x] Git churn + bounded source inventory
+- [x] Deterministic first-pass findings
+- [ ] GitHub App installation auth
+- [ ] Semgrep / CodeQL worker adapters
+- [ ] Provider-neutral LLM agent runner
+- [ ] Workflow result persistence and cache
 - [ ] PR-triggered background analyses
 - [ ] OpenTelemetry traces and per-workflow cost metrics
 
 ## Security
 
-n8n binds to localhost in the starter Compose file. The gateway is the intended external boundary.
+n8n binds to localhost. The scanner has no published host port, runs read-only with a bounded `/tmp`, and drops Linux capabilities in the starter Compose deployment.
 
-See [docs/SECURITY.md](docs/SECURITY.md) for the threat model and deployment checklist.
+See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## License
 
