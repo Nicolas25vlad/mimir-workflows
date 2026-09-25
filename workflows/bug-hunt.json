@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -460,
+        -720,
         0
       ],
       "webhookId": "mimir-bug-hunt",
@@ -27,14 +27,43 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'bug-hunt',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'resolve repository and ref',\n      'collect diff and repository hotspots',\n      'run deterministic scanners',\n      'run focused bug-hunter agents',\n      'deduplicate findings',\n      'return compact structured evidence'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add scanner/agent nodes before this response node.'\n  }\n}];"
+        "method": "POST",
+        "url": "http://repo-scanner:8790/scan",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ repository: $('Mimir Webhook').item.json.body.repository, ref: $('Mimir Webhook').item.json.body.ref ?? 'main' }) }}",
+        "options": {
+          "timeout": 120000
+        }
       },
-      "id": "bug-hunt-contract",
-      "name": "Validate Contract",
+      "id": "bug-hunt-scanner",
+      "name": "Scan Repository",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_SCANNER_AUTH",
+          "name": "Mimir Scanner Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scan = $json;\nconst input = $('Mimir Webhook').item.json.body ?? {};\nconst order = { low: 0, medium: 1, high: 2, critical: 3 };\nconst minimum = input.minimum_severity ?? 'medium';\nconst findings = (scan.findings ?? []).filter(\n  (finding) => (order[finding.severity] ?? 0) >= (order[minimum] ?? 1)\n);\n\nreturn [{\n  json: {\n    status: 'completed',\n    workflow: 'bug-hunt',\n    run_id: String($execution.id),\n    contract_version: 2,\n    repository: scan.repository,\n    requested_ref: scan.requested_ref,\n    commit: scan.commit,\n    summary: {\n      ...scan.findings_summary,\n      returned_findings: findings.length,\n      analyzed_files: scan.inventory?.analyzed_files ?? 0,\n      analyzed_bytes: scan.inventory?.analyzed_bytes ?? 0,\n      truncated: scan.inventory?.truncated ?? false\n    },\n    findings: findings.slice(0, 100),\n    hotspots: (scan.hotspots ?? []).slice(0, 15),\n    largest_files: (scan.largest_files ?? []).slice(0, 15),\n    languages: scan.languages ?? []\n  }\n}];"
+      },
+      "id": "bug-hunt-shape",
+      "name": "Shape Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -180,
+        -140,
         0
       ]
     },
@@ -49,7 +78,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        120,
+        160,
         0
       ]
     }
@@ -59,14 +88,25 @@
       "main": [
         [
           {
-            "node": "Validate Contract",
+            "node": "Scan Repository",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate Contract": {
+    "Scan Repository": {
+      "main": [
+        [
+          {
+            "node": "Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Result": {
       "main": [
         [
           {
@@ -85,12 +125,13 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "mimirContractVersion": 1,
-    "starterSteps": [
-      "repository context",
-      "static analysis",
-      "agent fan-out",
-      "deduplication",
+    "mimirContractVersion": 2,
+    "deterministicScanner": true,
+    "pipelineSteps": [
+      "clone safely",
+      "inventory",
+      "deterministic rules",
+      "severity filter",
       "structured findings"
     ]
   },

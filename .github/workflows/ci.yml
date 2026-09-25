@@ -25,7 +25,7 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
-      - name: Typecheck and build
+      - name: Typecheck, test and build
         run: npm run check
 
       - name: Validate workflow JSON

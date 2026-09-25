@@ -4,6 +4,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import type { NextFunction, Request, Response } from 'express';
 import * as z from 'zod/v4';
 
+import { secureTokenEquals } from './auth.js';
 import { config } from './config.js';
 import { N8nClient, type WorkflowName } from './n8n-client.js';
 
@@ -41,7 +42,7 @@ async function callWorkflow(
 function createServer(): McpServer {
   const server = new McpServer({
     name: 'mimir-workflows',
-    version: '0.1.0'
+    version: '0.2.0'
   });
 
   server.registerTool(
@@ -51,7 +52,7 @@ function createServer(): McpServer {
       description:
         'Run a read-only bug hunt workflow against a Git repository and return structured findings.',
       inputSchema: z.object({
-        repository: z.string().min(1).describe('Repository in owner/name form or a clone URL'),
+        repository: z.string().min(1).describe('GitHub repository in owner/name form or a GitHub URL'),
         ref: z.string().min(1).default('main'),
         scope: z.string().min(1).default('full'),
         minimum_severity: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
@@ -128,8 +129,9 @@ const app = createMcpExpressApp({
 
 function requireGatewayToken(req: Request, res: Response, next: NextFunction): void {
   const authorization = req.header('authorization');
+  const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
 
-  if (authorization !== `Bearer ${config.mcpAuthToken}`) {
+  if (!secureTokenEquals(config.mcpAuthToken, token)) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
@@ -141,7 +143,7 @@ app.get('/healthz', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'mimir-workflows',
-    version: '0.1.0'
+    version: '0.2.0'
   });
 });
 
