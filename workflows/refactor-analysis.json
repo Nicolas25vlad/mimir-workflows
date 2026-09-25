@@ -1,0 +1,99 @@
+{
+  "name": "Mimir · Refactor Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mimir/refactor-analysis",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "refactor-analysis-webhook",
+      "name": "Mimir Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -460,
+        0
+      ],
+      "webhookId": "mimir-refactor-analysis",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MIMIR_WEBHOOK_AUTH",
+          "name": "Mimir Webhook Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\n\nif (typeof body.repository !== 'string' || body.repository.length === 0) {\n  throw new Error('repository is required');\n}\n\nreturn [{\n  json: {\n    status: 'starter',\n    workflow: 'refactor-analysis',\n    run_id: String($execution.id),\n    contract_version: 1,\n    input: body,\n    pipeline: [\n      'resolve repository and target',\n      'measure complexity and duplication',\n      'identify dependency and ownership boundaries',\n      'rank refactor candidates by impact and risk',\n      'build an incremental migration plan',\n      'return evidence and affected paths'\n    ],\n    message: 'MCP -> n8n contract is healthy. Add analysis/agent nodes before this response node.'\n  }\n}];"
+      },
+      "id": "refactor-analysis-contract",
+      "name": "Validate Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "refactor-analysis-response",
+      "name": "Respond to MCP Gateway",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        120,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Mimir Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Contract": {
+      "main": [
+        [
+          {
+            "node": "Respond to MCP Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "mimirContractVersion": 1,
+    "starterSteps": [
+      "repository context",
+      "complexity metrics",
+      "hotspots",
+      "risk analysis",
+      "migration plan"
+    ]
+  },
+  "tags": [],
+  "active": false
+}
